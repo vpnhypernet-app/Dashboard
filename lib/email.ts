@@ -1,7 +1,15 @@
 import { Resend } from 'resend';
 import { Alert } from '@/types/alert';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy initialization - only create Resend instance when needed
+let resend: Resend | null = null;
+
+function getResendClient() {
+  if (!resend && process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
+}
 
 export async function sendAlertEmail(alerts: Alert[]) {
   const emailTo = process.env.EMAIL_TO;
@@ -17,6 +25,12 @@ export async function sendAlertEmail(alerts: Alert[]) {
     return { success: false, error: 'RESEND_API_KEY non configuré' };
   }
 
+  const client = getResendClient();
+  if (!client) {
+    console.error('Impossible d\'initialiser Resend client');
+    return { success: false, error: 'Resend client not initialized' };
+  }
+
   try {
     // Regrouper les alertes par sévérité
     const criticalAlerts = alerts.filter(a => a.severity === 'critical');
@@ -26,7 +40,7 @@ export async function sendAlertEmail(alerts: Alert[]) {
     const htmlContent = buildEmailHtml(criticalAlerts, warningAlerts);
     const subject = `⚠️ ${criticalAlerts.length > 0 ? 'URGENT - ' : ''}Alertes Serveurs (${alerts.length} alerte${alerts.length > 1 ? 's' : ''})`;
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await client.emails.send({
       from: emailFrom,
       to: emailTo,
       subject: subject,
