@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { fetchAllServers } from '@/lib/api';
 import { getIosConfigFromFirebase, getAndroidConfigFromFirebase } from '@/lib/firebase';
 import path from 'path';
 import { promises as fs } from 'fs';
@@ -91,9 +90,18 @@ async function enrichServersWithVPNConfig(servers: any[]) {
   }
 }
 
-export async function GET() {
+export async function POST(request: Request) {
   try {
-    const servers = await fetchAllServers();
+    const { servers } = await request.json();
+    
+    if (!servers || !Array.isArray(servers)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid servers data' },
+        { status: 400 }
+      );
+    }
+    
+    // Enrichir uniquement avec Firebase (pas d'appel API OneProvider/MVPS)
     const enrichedServers = await enrichServersWithVPNConfig(servers);
     
     return NextResponse.json({
@@ -102,12 +110,12 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error in /api/servers:', error);
+    console.error('Error in /api/servers/refresh-firebase:', error);
     return NextResponse.json(
       {
         success: false,
         servers: [],
-        error: 'Failed to fetch servers',
+        error: 'Failed to refresh Firebase config',
       },
       { status: 500 }
     );

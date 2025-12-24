@@ -16,6 +16,18 @@ export interface Server {
   currency: string;
   location?: string;
   renewalDate?: string; // Date de renouvellement (MVPS uniquement)
+  vpnConfig?: {
+    ios?: {
+      available: boolean;
+      isPremium: boolean;
+      profileType: string;
+    };
+    android?: {
+      available: boolean;
+      isPremium: boolean;
+      profileType: string;
+    };
+  };
 }
 
 export interface ApiResponse {

@@ -1,103 +1,109 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRemoteConfig, updateRemoteConfig, updateServerInRemoteConfig } from '@/lib/firebase';
-import { UpdateServerConfigRequest } from '@/types/config';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { getAndroidConfigFromFirebase, getIosConfigFromFirebase } from '@/lib/firebase';
 
 /**
- * GET /api/config - Récupérer la configuration Remote Config
+ * GET /api/config - Récupérer la configuration
+ * - Android depuis Firebase Realtime Database
+ * - iOS depuis Firebase Realtime Database
  */
 export async function GET() {
   try {
-    const config = await getRemoteConfig();
+    // iOS - Firebase Realtime Database
+    let iosConfig;
+    try {
+      iosConfig = await getIosConfigFromFirebase();
+      console.log('✅ Config iOS chargée depuis Firebase');
+    } catch (firebaseError) {
+      console.warn('⚠️ Erreur Firebase iOS, fallback vers fichier local:', firebaseError);
+      // Fallback vers fichier local
+      const iosPath = path.join(process.cwd(), 'data', 'hypernet-iOS.json');
+      const iosData = await fs.readFile(iosPath, 'utf8');
+      iosConfig = JSON.parse(iosData);
+    }
+    
+    // Android - Firebase Realtime Database
+    let androidConfig;
+    try {
+      androidConfig = await getAndroidConfigFromFirebase();
+      console.log('✅ Config Android chargée depuis Firebase');
+    } catch (firebaseError) {
+      console.warn('⚠️ Erreur Firebase Android, fallback vers fichier local:', firebaseError);
+      // Fallback vers fichier local
+      const androidPath = path.join(process.cwd(), 'data', 'hypernet-Android.json');
+      const androidData = await fs.readFile(androidPath, 'utf8');
+      androidConfig = JSON.parse(androidData);
+    }
+    
+    // Transformer les données au format attendu
+    const transformedData = {
+      ios: transformIOSData(iosConfig),
+      android: transformAndroidData(androidConfig),
+    };
     
     return NextResponse.json({
       success: true,
-      config,
+      config: transformedData,
+      ...transformedData, // Rétro-compatibilité
     });
   } catch (error) {
     console.error('Erreur GET /api/config:', error);
     return NextResponse.json({
       success: false,
-      error: String(error),
+      error: 'Erreur lors de la lecture des fichiers de configuration: ' + String(error),
     }, { status: 500 });
   }
 }
 
 /**
- * POST /api/config - Mettre à jour la configuration complète d'une plateforme
- * Body: { platform: 'ios' | 'android', config: PlatformConfig }
+ * Transformer les données iOS (format array direct)
  */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { platform, config } = body;
-    
-    if (!platform || !config) {
-      return NextResponse.json({
-        success: false,
-        error: 'Platform et config requis',
-      }, { status: 400 });
-    }
-    
-    if (platform !== 'ios' && platform !== 'android') {
-      return NextResponse.json({
-        success: false,
-        error: 'Platform doit être ios ou android',
-      }, { status: 400 });
-    }
-    
-    await updateRemoteConfig(platform, config);
-    
-    return NextResponse.json({
-      success: true,
-      message: `Configuration ${platform} mise à jour`,
-    });
-  } catch (error) {
-    console.error('Erreur POST /api/config:', error);
-    return NextResponse.json({
-      success: false,
-      error: String(error),
-    }, { status: 500 });
+function transformIOSData(data: any) {
+  if (!data.servers || !Array.isArray(data.servers)) {
+    return [];
   }
+  
+  return data.servers.map((server: any) => ({
+    id: server.id,
+    name: server.city || server.ipaddress,
+    ipaddress: server.ipaddress,
+    ispremium: server.ispremium,
+    isavailable: server.isavailable,
+    profiletype: server.profiletype,
+    country: server.country,
+    city: server.city,
+  }));
 }
 
 /**
- * PATCH /api/config - Mettre à jour un serveur spécifique
- * Body: { platform: 'ios' | 'android', serverId: string, tier?: string, available?: boolean }
+ * Transformer les données Android Realtime Database
  */
-export async function PATCH(request: NextRequest) {
-  try {
-    const body: UpdateServerConfigRequest = await request.json();
-    const { platform, serverId, tier, available } = body;
-    
-    if (!platform || !serverId) {
-      return NextResponse.json({
-        success: false,
-        error: 'Platform et serverId requis',
-      }, { status: 400 });
-    }
-    
-    if (platform !== 'ios' && platform !== 'android') {
-      return NextResponse.json({
-        success: false,
-        error: 'Platform doit être ios ou android',
-      }, { status: 400 });
-    }
-    
-    const updates: { tier?: string; available?: boolean } = {};
-    if (tier !== undefined) updates.tier = tier;
-    if (available !== undefined) updates.available = available;
-    
-    await updateServerInRemoteConfig(platform, serverId, updates);
-    
-    return NextResponse.json({
-      success: true,
-      message: `Serveur ${serverId} mis à jour sur ${platform}`,
-    });
-  } catch (error) {
-    console.error('Erreur PATCH /api/config:', error);
-    return NextResponse.json({
-      success: false,
-      error: String(error),
-    }, { status: 500 });
+function transformAndroidData(data: any) {
+  const servers: any[] = [];
+  
+  if (!data.countries) {
+    return servers;
   }
+  
+  // Parcourir tous les pays
+  Object.entries(data.countries).forEach(([countryName, countryData]: [string, any]) => {
+    if (!countryData.servers) return;
+    
+    // Parcourir tous les serveurs du pays
+    Object.entries(countryData.servers).forEach(([serverKey, serverData]: [string, any]) => {
+      servers.push({
+        id: serverData.id || serverKey,
+        name: serverData.city || serverKey,
+        ipaddress: serverData.ipaddress,
+        ispremium: serverData.ispremium,
+        isavailable: serverData.isavailable,
+        profiletype: serverData.profiletype,
+        country: countryName,
+        city: serverData.city,
+      });
+    });
+  });
+  
+  return servers;
 }

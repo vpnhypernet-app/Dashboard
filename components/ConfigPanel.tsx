@@ -6,10 +6,8 @@ import { RemoteConfigData, ServerConfig, Platform, ServerTier } from '@/types/co
 export default function ConfigPanel() {
   const [config, setConfig] = useState<RemoteConfigData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>('ios');
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     fetchConfig();
@@ -18,6 +16,7 @@ export default function ConfigPanel() {
   const fetchConfig = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await fetch('/api/config');
       const data = await response.json();
       
@@ -34,46 +33,12 @@ export default function ConfigPanel() {
     }
   };
 
-  const updateServer = async (serverId: string, tier?: ServerTier, available?: boolean) => {
-    try {
-      setSaving(true);
-      setError(null);
-      setSuccess(null);
-      
-      const response = await fetch('/api/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: selectedPlatform,
-          serverId,
-          tier,
-          available,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setSuccess(`Serveur ${serverId} mis à jour avec succès`);
-        await fetchConfig(); // Recharger la config
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        setError(data.error);
-      }
-    } catch (err) {
-      setError('Erreur lors de la mise à jour');
-      console.error(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const getTierBadgeClass = (tier: ServerTier) => {
     switch (tier) {
       case 'premium':
         return 'bg-yellow-500 text-white';
       case 'free':
-        return 'bg-gray-500 text-white';
+        return 'bg-blue-500 text-white';
       case 'unavailable':
         return 'bg-red-500 text-white';
       default:
@@ -112,8 +77,8 @@ export default function ConfigPanel() {
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white mb-2">⚙️ Configuration Firebase Remote Config</h2>
-        <p className="text-gray-400">Gérer les serveurs iOS et Android (Premium/Gratuit/Non disponible)</p>
+        <h2 className="text-2xl font-bold text-white mb-2">📱 Configuration Remote Config iOS/Android</h2>
+        <p className="text-gray-400">Visualisation des serveurs configurés dans Firebase Remote Config</p>
         {platformConfig?.lastUpdated && (
           <p className="text-sm text-gray-500 mt-1">
             Dernière mise à jour: {new Date(platformConfig.lastUpdated).toLocaleString('fr-FR')}
@@ -125,11 +90,9 @@ export default function ConfigPanel() {
       {error && (
         <div className="mb-4 bg-red-900/50 border border-red-700 rounded p-3 text-red-300">
           ❌ {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 bg-green-900/50 border border-green-700 rounded p-3 text-green-300">
-          ✅ {success}
+          <p className="text-xs mt-2 text-red-400">
+            Vérifiez que Firebase est configuré dans .env.local
+          </p>
         </div>
       )}
 
@@ -166,60 +129,55 @@ export default function ConfigPanel() {
 
       {/* Servers List */}
       {servers.length === 0 ? (
-        <div className="text-center text-gray-400 py-8">
-          Aucun serveur configuré pour {selectedPlatform.toUpperCase()}
+        <div className="text-center py-12 bg-gray-900 rounded-lg border border-gray-700">
+          <div className="text-6xl mb-4">📭</div>
+          <p className="text-gray-400 text-lg mb-2">
+            Aucun serveur configuré pour {selectedPlatform.toUpperCase()}
+          </p>
+          <p className="text-gray-500 text-sm">
+            Configurez vos serveurs dans Firebase Console → Remote Config
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {servers.map((server: ServerConfig) => (
             <div
               key={server.id}
-              className={`bg-gray-900 border rounded-lg p-4 ${
-                !server.available ? 'border-red-700' : 'border-gray-700'
+              className={`bg-gray-900 border rounded-lg p-4 transition-all hover:border-gray-600 ${
+                !server.available ? 'border-red-700 opacity-75' : 'border-gray-700'
               }`}
             >
               <div className="flex items-center justify-between">
                 {/* Server Info */}
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-white mb-1">{server.name}</h3>
-                  <div className="flex items-center gap-3 text-sm text-gray-400">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="text-lg font-semibold text-white">{server.name}</h3>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${getTierBadgeClass(server.tier)}`}>
+                      {getTierLabel(server.tier)}
+                    </span>
+                    {(server as any).profiletype && (
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-indigo-600 text-white">
+                        {(server as any).profiletype.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-gray-400 flex-wrap">
                     <span>📍 {server.location}</span>
-                    <span>🔑 {server.id}</span>
-                    {server.ip && <span className="font-mono">{server.ip}</span>}
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      server.provider === 'mvps' ? 'bg-blue-600' : 'bg-purple-600'
+                    {server.ip && <span className="font-mono text-gray-500">{server.ip}</span>}
+                    {(server as any).port && (
+                      <span className="text-gray-500">
+                        Port: {(server as any).port}
+                      </span>
+                    )}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                      server.available ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
                     }`}>
-                      {server.provider.toUpperCase()}
+                      {server.available ? '✓ Disponible' : '✗ Indisponible'}
                     </span>
                   </div>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center gap-3">
-                  {/* Tier Selector */}
-                  <select
-                    value={server.tier}
-                    onChange={(e) => updateServer(server.id, e.target.value as ServerTier)}
-                    disabled={saving}
-                    className="px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="premium">⭐ Premium</option>
-                    <option value="free">🆓 Gratuit</option>
-                    <option value="unavailable">🚫 Non disponible</option>
-                  </select>
-
-                  {/* Available Toggle */}
-                  <button
-                    onClick={() => updateServer(server.id, undefined, !server.available)}
-                    disabled={saving}
-                    className={`px-4 py-2 rounded font-semibold transition-all ${
-                      server.available
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
-                    }`}
-                  >
-                    {server.available ? '✓ Disponible' : '✗ Indisponible'}
-                  </button>
+                  <div className="text-xs text-gray-500 mt-1 font-mono">
+                    ID: {server.id}
+                  </div>
                 </div>
               </div>
             </div>
@@ -228,23 +186,29 @@ export default function ConfigPanel() {
       )}
 
       {/* Stats */}
-      <div className="mt-6 grid grid-cols-3 gap-4">
+      <div className="mt-6 grid grid-cols-4 gap-4">
         <div className="bg-gray-900 rounded p-4 border border-gray-700">
+          <div className="text-sm text-gray-400 mb-1">Total</div>
+          <div className="text-2xl font-bold text-white">
+            {servers.length}
+          </div>
+        </div>
+        <div className="bg-gray-900 rounded p-4 border border-yellow-700/50">
           <div className="text-sm text-gray-400 mb-1">Premium</div>
           <div className="text-2xl font-bold text-yellow-500">
             {servers.filter((s: ServerConfig) => s.tier === 'premium').length}
           </div>
         </div>
-        <div className="bg-gray-900 rounded p-4 border border-gray-700">
+        <div className="bg-gray-900 rounded p-4 border border-blue-700/50">
           <div className="text-sm text-gray-400 mb-1">Gratuit</div>
-          <div className="text-2xl font-bold text-gray-400">
+          <div className="text-2xl font-bold text-blue-500">
             {servers.filter((s: ServerConfig) => s.tier === 'free').length}
           </div>
         </div>
-        <div className="bg-gray-900 rounded p-4 border border-gray-700">
-          <div className="text-sm text-gray-400 mb-1">Non disponible</div>
-          <div className="text-2xl font-bold text-red-500">
-            {servers.filter((s: ServerConfig) => s.tier === 'unavailable' || !s.available).length}
+        <div className="bg-gray-900 rounded p-4 border border-green-700/50">
+          <div className="text-sm text-gray-400 mb-1">Disponibles</div>
+          <div className="text-2xl font-bold text-green-500">
+            {servers.filter((s: ServerConfig) => s.available).length}
           </div>
         </div>
       </div>
