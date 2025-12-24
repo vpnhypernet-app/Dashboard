@@ -14,13 +14,14 @@ export async function fetchMVPSServers(): Promise<Server[]> {
   }
 
   try {
-    // Step 1: Fetch list of all servers
+    // Step 1: Fetch list of all servers with timeout
     const serversResponse = await fetch('https://www.mvps.net/api/vps/', {
       method: 'GET',
       headers: {
         'X_API_KEY': apiKey,
         'X_API_USER': apiUser,
       },
+      signal: AbortSignal.timeout(10000), // 10 seconds timeout
     });
 
     if (!serversResponse.ok) {
@@ -47,6 +48,7 @@ export async function fetchMVPSServers(): Promise<Server[]> {
         'X_API_KEY': apiKey,
         'X_API_USER': apiUser,
       },
+      signal: AbortSignal.timeout(10000), // 10 seconds timeout
     });
 
     let packagesMap: Record<string, any> = {};
@@ -73,6 +75,7 @@ export async function fetchMVPSServers(): Promise<Server[]> {
               'X_API_KEY': apiKey,
               'X_API_USER': apiUser,
             },
+            signal: AbortSignal.timeout(8000), // 8 seconds timeout per server
           });
 
           let detailedInfo = server;
@@ -244,6 +247,7 @@ export async function fetchOneProviderServers(): Promise<Server[]> {
         'Client-Key': clientKey,
         'X-Pretty-JSON': '1',
       },
+      signal: AbortSignal.timeout(10000), // 10 seconds timeout
     });
 
     if (!response.ok) {

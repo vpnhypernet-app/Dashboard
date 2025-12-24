@@ -5,30 +5,39 @@ import path from 'path';
 import { promises as fs } from 'fs';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 30; // 30 seconds max
 
 async function enrichServersWithVPNConfig(servers: any[]) {
   try {
-    // 🔥 Lire les configs VPN depuis Firebase
+    // 🔥 Lire les configs VPN depuis Firebase avec timeout
     let iosData, androidData;
     
-    // iOS depuis Firebase
+    // iOS depuis Firebase avec timeout de 5 secondes
     try {
-      iosData = await getIosConfigFromFirebase();
+      const iosPromise = getIosConfigFromFirebase();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Firebase iOS timeout')), 5000)
+      );
+      iosData = await Promise.race([iosPromise, timeoutPromise]);
       console.log('✅ Config iOS chargée depuis Firebase pour enrichissement');
     } catch (error) {
-      console.warn('⚠️ Erreur Firebase iOS, fallback fichier local:', error);
-      const iosPath = path.join(process.cwd(), 'data', 'hypernet-iOS.json');
-      iosData = JSON.parse(await fs.readFile(iosPath, 'utf8'));
+      console.warn('⚠️ Erreur Firebase iOS, utilisation config vide:', error);
+      // Sur Vercel, les fichiers data/ ne sont pas déployés, utiliser config vide
+      iosData = { servers: [] };
     }
     
-    // Android depuis Firebase
+    // Android depuis Firebase avec timeout de 5 secondes
     try {
-      androidData = await getAndroidConfigFromFirebase();
+      const androidPromise = getAndroidConfigFromFirebase();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Firebase Android timeout')), 5000)
+      );
+      androidData = await Promise.race([androidPromise, timeoutPromise]);
       console.log('✅ Config Android chargée depuis Firebase pour enrichissement');
     } catch (error) {
-      console.warn('⚠️ Erreur Firebase Android, fallback fichier local:', error);
-      const androidPath = path.join(process.cwd(), 'data', 'hypernet-Android.json');
-      androidData = JSON.parse(await fs.readFile(androidPath, 'utf8'));
+      console.warn('⚠️ Erreur Firebase Android, utilisation config vide:', error);
+      // Sur Vercel, les fichiers data/ ne sont pas déployés, utiliser config vide
+      androidData = { countries: {} };
     }
     
     // Créer des maps pour recherche rapide par IP
