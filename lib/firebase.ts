@@ -28,9 +28,12 @@ export async function getRemoteConfig(): Promise<any> {
     const iosServers = template.parameters['ios_servers'];
     const androidServers = template.parameters['android_servers'];
     
+    const iosValue = (iosServers?.defaultValue as any)?.value as string | undefined;
+    const androidValue = (androidServers?.defaultValue as any)?.value as string | undefined;
+    
     return {
-      ios: iosServers ? JSON.parse(iosServers.defaultValue?.value || '{"servers": [], "lastUpdated": ""}') : { servers: [], lastUpdated: '' },
-      android: androidServers ? JSON.parse(androidServers.defaultValue?.value || '{"servers": [], "lastUpdated": ""}') : { servers: [], lastUpdated: '' },
+      ios: iosValue ? JSON.parse(iosValue) : { servers: [], lastUpdated: '' },
+      android: androidValue ? JSON.parse(androidValue) : { servers: [], lastUpdated: '' },
     };
   } catch (error) {
     console.error('Erreur getRemoteConfig:', error);
@@ -216,9 +219,9 @@ export async function getIosConfigFromFirebase(): Promise<any> {
     
     // Retourner dans le format attendu { servers: [...] }
     return { servers };
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Erreur lecture iOS Firebase:', error);
-    console.error('Détails:', error.message);
+    console.error('Détails:', error?.message || 'Unknown error');
     throw error;
   }
 }
