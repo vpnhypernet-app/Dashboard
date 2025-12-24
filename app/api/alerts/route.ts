@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Alert, DEFAULT_ALERT_CONFIG } from '@/types/alert';
 import { Server } from '@/types/server';
 import { sendAlertEmail } from '@/lib/email';
+import { markServerUnavailable, markServerPremium } from '@/lib/firebase';
 
 export async function GET() {
   try {
@@ -22,11 +23,18 @@ export async function GET() {
     // Vérifier les alertes
     const alerts = checkAlerts(servers);
     
+    // Automatisation Firebase Remote Config
+    const firebaseEnabled = process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY;
+    if (firebaseEnabled) {
+      await automateServerAvailability(servers);
+    }
+    
     if (alerts.length === 0) {
       return NextResponse.json({ 
         success: true, 
         message: 'Aucune alerte',
-        alertCount: 0 
+        alertCount: 0,
+        firebaseAutomation: firebaseEnabled ? 'enabled' : 'disabled'
       });
     }
 
@@ -38,7 +46,8 @@ export async function GET() {
         success: false, 
         error: emailResult.error,
         alerts,
-        alertCount: alerts.length 
+        alertCount: alerts.length,
+        firebaseAutomation: firebaseEnabled ? 'enabled' : 'disabled'
       }, { status: 500 });
     }
 
@@ -46,7 +55,8 @@ export async function GET() {
       success: true, 
       message: `${alerts.length} alerte(s) envoyée(s) par email`,
       alertCount: alerts.length,
-      alerts 
+      alerts,
+      firebaseAutomation: firebaseEnabled ? 'enabled' : 'disabled'
     });
 
   } catch (error) {
@@ -55,6 +65,34 @@ export async function GET() {
       success: false, 
       error: String(error) 
     }, { status: 500 });
+  }
+}
+
+/**
+ * Automatiser la disponibilité des serveurs dans Firebase Remote Config
+ * Règle: Si bande passante >= 95% => unavailable, sinon => premium
+ */
+async function automateServerAvailability(servers: Server[]) {
+  const config = DEFAULT_ALERT_CONFIG;
+  
+  for (const server of servers) {
+    if (server.bandwidth.total > 0) {
+      const bandwidthPercent = (server.bandwidth.used / server.bandwidth.total) * 100;
+      
+      try {
+        if (bandwidthPercent >= config.bandwidthThresholds.critical) {
+          // Marquer comme non disponible
+          await markServerUnavailable(server.id, server.name);
+          console.log(`✅ Serveur ${server.name} marqué comme non disponible (${bandwidthPercent.toFixed(1)}%)`);
+        } else if (bandwidthPercent < config.bandwidthThresholds.critical) {
+          // Remettre en premium si sous le seuil critique
+          await markServerPremium(server.id, server.name);
+          console.log(`✅ Serveur ${server.name} marqué comme premium (${bandwidthPercent.toFixed(1)}%)`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Impossible de mettre à jour ${server.name} dans Firebase:`, error);
+      }
+    }
   }
 }
 
@@ -107,24 +145,58 @@ function checkAlerts(servers: Server[]): Alert[] {
         const today = new Date();
         const daysUntilRenewal = Math.ceil((renewalDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         
-        if (daysUntilRenewal <= config.renewalDaysThreshold && daysUntilRenewal > 0) {
+        // Alerte à 30 jours
+        if (daysUntilRenewal <= config.renewalDaysThresholds.early && daysUntilRenewal > config.renewalDaysThresholds.warning) {
           alerts.push({
             type: 'renewal',
-            severity: daysUntilRenewal <= 3 ? 'critical' : 'warning',
+            severity: 'warning',
             serverId: server.id,
             serverName: server.name,
             provider: server.provider,
-            message: daysUntilRenewal <= 3 
-              ? `🚨 URGENT: Renouvellement dans ${daysUntilRenewal} jour${daysUntilRenewal > 1 ? 's' : ''} !`
-              : `⚠️ Renouvellement proche: dans ${daysUntilRenewal} jours`,
+            message: `📅 Rappel: Renouvellement dans ${daysUntilRenewal} jours`,
             details: {
               renewalDate: server.renewalDate,
               daysUntilRenewal,
             },
             timestamp: new Date().toISOString(),
           });
-        } else if (daysUntilRenewal <= 0) {
-          // Renouvellement dépassé
+        }
+        // Alerte à 7 jours
+        else if (daysUntilRenewal <= config.renewalDaysThresholds.warning && daysUntilRenewal > config.renewalDaysThresholds.critical) {
+          alerts.push({
+            type: 'renewal',
+            severity: 'warning',
+            serverId: server.id,
+            serverName: server.name,
+            provider: server.provider,
+            message: `⚠️ ATTENTION: Renouvellement dans ${daysUntilRenewal} jours`,
+            details: {
+              renewalDate: server.renewalDate,
+              daysUntilRenewal,
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
+        // Alerte critique (la veille et le jour même)
+        else if (daysUntilRenewal <= config.renewalDaysThresholds.critical && daysUntilRenewal >= 0) {
+          alerts.push({
+            type: 'renewal',
+            severity: 'critical',
+            serverId: server.id,
+            serverName: server.name,
+            provider: server.provider,
+            message: daysUntilRenewal === 0 
+              ? `🚨 URGENT: Renouvellement AUJOURD'HUI !`
+              : `🚨 URGENT: Renouvellement DEMAIN !`,
+            details: {
+              renewalDate: server.renewalDate,
+              daysUntilRenewal,
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
+        // Renouvellement dépassé
+        else if (daysUntilRenewal < 0) {
           alerts.push({
             type: 'renewal',
             severity: 'critical',

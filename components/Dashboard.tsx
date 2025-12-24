@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import ServerCard from './ServerCard';
+import ConfigPanel from './ConfigPanel';
 import { Server } from '@/types/server';
 
 export default function Dashboard() {
@@ -10,6 +11,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>('');
   const [filterProvider, setFilterProvider] = useState<'all' | 'mvps' | 'oneprovider'>('all');
+  const [showConfig, setShowConfig] = useState(false);
 
   const fetchServers = async () => {
     try {
@@ -64,10 +66,29 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-900 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">Tableau de Bord Serveurs</h1>
-          <p className="text-gray-400">Surveillance de vos serveurs MVPS et OneProvider</p>
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-4xl font-bold text-white mb-2">Tableau de Bord Serveurs</h1>
+            <p className="text-gray-400">Surveillance de vos serveurs MVPS et OneProvider</p>
+          </div>
+          <button
+            onClick={() => setShowConfig(!showConfig)}
+            className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+              showConfig 
+                ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            }`}
+          >
+            ⚙️ {showConfig ? 'Masquer Config' : 'Configuration Firebase'}
+          </button>
         </div>
+
+        {/* Configuration Panel */}
+        {showConfig && (
+          <div className="mb-8">
+            <ConfigPanel />
+          </div>
+        )}
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

@@ -5,8 +5,12 @@ export interface AlertConfig {
     critical: number; // 95%
   };
   
-  // Nombre de jours avant renouvellement pour alerter
-  renewalDaysThreshold: number; // Ex: 7 jours
+  // Seuils de jours avant renouvellement pour alerter
+  renewalDaysThresholds: {
+    early: number; // 30 jours
+    warning: number; // 7 jours
+    critical: number; // 1 jour (la veille)
+  };
 }
 
 export interface Alert {
@@ -34,5 +38,9 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
     warning: 75,
     critical: 95,
   },
-  renewalDaysThreshold: 7,
+  renewalDaysThresholds: {
+    early: 30,
+    warning: 7,
+    critical: 1,
+  },
 };
