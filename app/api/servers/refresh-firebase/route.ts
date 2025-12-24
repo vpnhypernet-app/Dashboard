@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getIosConfigFromFirebase, getAndroidConfigFromFirebase } from '@/lib/firebase';
-import path from 'path';
-import { promises as fs } from 'fs';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,9 +13,8 @@ async function enrichServersWithVPNConfig(servers: any[]) {
       iosData = await getIosConfigFromFirebase();
       console.log('✅ Config iOS chargée depuis Firebase pour enrichissement');
     } catch (error) {
-      console.warn('⚠️ Erreur Firebase iOS, fallback fichier local:', error);
-      const iosPath = path.join(process.cwd(), 'data', 'hypernet-iOS.json');
-      iosData = JSON.parse(await fs.readFile(iosPath, 'utf8'));
+      console.warn('⚠️ Erreur Firebase iOS, utilisation config vide:', error);
+      iosData = { servers: [] };
     }
     
     // Android depuis Firebase
@@ -25,9 +22,8 @@ async function enrichServersWithVPNConfig(servers: any[]) {
       androidData = await getAndroidConfigFromFirebase();
       console.log('✅ Config Android chargée depuis Firebase pour enrichissement');
     } catch (error) {
-      console.warn('⚠️ Erreur Firebase Android, fallback fichier local:', error);
-      const androidPath = path.join(process.cwd(), 'data', 'hypernet-Android.json');
-      androidData = JSON.parse(await fs.readFile(androidPath, 'utf8'));
+      console.warn('⚠️ Erreur Firebase Android, utilisation config vide:', error);
+      androidData = { countries: {} };
     }
     
     // Créer des maps pour recherche rapide par IP

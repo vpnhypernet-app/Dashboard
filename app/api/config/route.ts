@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { getAndroidConfigFromFirebase, getIosConfigFromFirebase } from '@/lib/firebase';
 
 /**
@@ -16,11 +14,9 @@ export async function GET() {
       iosConfig = await getIosConfigFromFirebase();
       console.log('✅ Config iOS chargée depuis Firebase');
     } catch (firebaseError) {
-      console.warn('⚠️ Erreur Firebase iOS, fallback vers fichier local:', firebaseError);
-      // Fallback vers fichier local
-      const iosPath = path.join(process.cwd(), 'data', 'hypernet-iOS.json');
-      const iosData = await fs.readFile(iosPath, 'utf8');
-      iosConfig = JSON.parse(iosData);
+      console.warn('⚠️ Erreur Firebase iOS, utilisation config vide:', firebaseError);
+      // Fallback vers config vide si Firebase échoue
+      iosConfig = { servers: [] };
     }
     
     // Android - Firebase Realtime Database
@@ -29,11 +25,9 @@ export async function GET() {
       androidConfig = await getAndroidConfigFromFirebase();
       console.log('✅ Config Android chargée depuis Firebase');
     } catch (firebaseError) {
-      console.warn('⚠️ Erreur Firebase Android, fallback vers fichier local:', firebaseError);
-      // Fallback vers fichier local
-      const androidPath = path.join(process.cwd(), 'data', 'hypernet-Android.json');
-      const androidData = await fs.readFile(androidPath, 'utf8');
-      androidConfig = JSON.parse(androidData);
+      console.warn('⚠️ Erreur Firebase Android, utilisation config vide:', firebaseError);
+      // Fallback vers config vide si Firebase échoue
+      androidConfig = { countries: {} };
     }
     
     // Transformer les données au format attendu

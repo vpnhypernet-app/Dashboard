@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { updateAndroidServerInFirebase, updateIosServerInFirebase } from '@/lib/firebase';
 
 export async function POST(request: Request) {
@@ -36,33 +34,10 @@ export async function POST(request: Request) {
           );
         }
       } catch (firebaseError) {
-        console.error('Erreur Firebase iOS, fallback vers fichier local:', firebaseError);
-        
-        // Fallback vers fichier local si Firebase échoue
-        const iosPath = path.join(process.cwd(), 'data', 'hypernet-iOS.json');
-        const iosData = JSON.parse(await fs.readFile(iosPath, 'utf8'));
-        
-        if (iosData.servers && Array.isArray(iosData.servers)) {
-          const serverIndex = iosData.servers.findIndex((s: any) => s.ipaddress === serverIp);
-          
-          if (serverIndex !== -1) {
-            iosData.servers[serverIndex].ispremium = isPremium ? 1 : 0;
-            iosData.servers[serverIndex].isavailable = isAvailable ? 1 : 0;
-            
-            await fs.writeFile(iosPath, JSON.stringify(iosData, null, 2));
-            
-            return NextResponse.json({ 
-              success: true, 
-              message: 'Config iOS mise à jour (fichier local - fallback)',
-              updated: { serverIp, platform, status },
-              source: 'local-fallback'
-            });
-          }
-        }
-        
+        console.error('Erreur Firebase iOS:', firebaseError);
         return NextResponse.json(
-          { error: 'Serveur iOS non trouvé' },
-          { status: 404 }
+          { error: 'Erreur Firebase iOS: ' + String(firebaseError) },
+          { status: 500 }
         );
       }
       
@@ -85,52 +60,19 @@ export async function POST(request: Request) {
           );
         }
       } catch (firebaseError) {
-        console.error('Erreur Firebase, fallback vers fichier local:', firebaseError);
-        
-        // Fallback vers fichier local si Firebase échoue
-        const androidPath = path.join(process.cwd(), 'data', 'hypernet-Android.json');
-        const androidData = JSON.parse(await fs.readFile(androidPath, 'utf8'));
-        
-        if (androidData.countries) {
-          let found = false;
-          
-          for (const country of Object.values(androidData.countries) as any[]) {
-            if (country.servers) {
-              for (const server of Object.values(country.servers) as any[]) {
-                if (server.ipaddress === serverIp) {
-                  server.ispremium = isPremium ? 1 : 0;
-                  server.isavailable = isAvailable ? 1 : 0;
-                  found = true;
-                  break;
-                }
-              }
-            }
-            if (found) break;
-          }
-          
-          if (found) {
-            await fs.writeFile(androidPath, JSON.stringify(androidData, null, 2));
-            
-            return NextResponse.json({ 
-              success: true, 
-              message: 'Config Android mise à jour (fichier local - fallback)',
-              updated: { serverIp, platform, status },
-              source: 'local-fallback'
-            });
-          }
-        }
-        
+        console.error('Erreur Firebase Android:', firebaseError);
         return NextResponse.json(
-          { error: 'Serveur Android non trouvé' },
-          { status: 404 }
+          { error: 'Erreur Firebase Android: ' + String(firebaseError) },
+          { status: 500 }
         );
       }
+      
+    } else {
+      return NextResponse.json(
+        { error: 'Plateforme invalide' },
+        { status: 400 }
+      );
     }
-
-    return NextResponse.json(
-      { error: 'Plateforme invalide' },
-      { status: 400 }
-    );
 
   } catch (error) {
     console.error('Erreur mise à jour config:', error);
