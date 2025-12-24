@@ -71,9 +71,9 @@ export default function ServerCard({ server, onVPNConfigChange }: ServerCardProp
                   onChange={(e) => onVPNConfigChange?.(server.ip, 'ios', e.target.value)}
                   className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
                 >
-                  <option value="premium">Premium</option>
-                  <option value="gratuit">Gratuit</option>
-                  <option value="indisponible">Indisponible</option>
+                  <option value="premium">⭐ Premium</option>
+                  <option value="gratuit">✓ Gratuit</option>
+                  <option value="indisponible">🚫 Indisponible</option>
                 </select>
               </div>
             )}
@@ -88,9 +88,9 @@ export default function ServerCard({ server, onVPNConfigChange }: ServerCardProp
                   onChange={(e) => onVPNConfigChange?.(server.ip, 'android', e.target.value)}
                   className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
                 >
-                  <option value="premium">Premium</option>
-                  <option value="gratuit">Gratuit</option>
-                  <option value="indisponible">Indisponible</option>
+                  <option value="premium">⭐ Premium</option>
+                  <option value="gratuit">✓ Gratuit</option>
+                  <option value="indisponible">🚫 Indisponible</option>
                 </select>
               </div>
             )}

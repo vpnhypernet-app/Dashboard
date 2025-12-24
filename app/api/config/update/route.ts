@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     const isPremium = status === 'premium';
-    const isAvailable = status !== 'unavailable';
+    const isAvailable = status !== 'indisponible';
 
     if (platform === 'ios') {
       // 🔥 Mise à jour iOS dans Firebase Realtime Database

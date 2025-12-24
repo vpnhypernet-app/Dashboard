@@ -291,11 +291,38 @@ export default function Dashboard() {
         {/* Modal de confirmation */}
         {showConfirmModal && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div className="bg-gray-800 rounded-lg p-6 max-w-md border border-gray-700">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-2xl border border-gray-700">
               <h3 className="text-xl font-bold text-white mb-4">Confirmer les modifications</h3>
-              <p className="text-gray-300 mb-6">
-                Vous avez {pendingChanges.size} modification(s) en attente. Voulez-vous sauvegarder ?
+              <p className="text-gray-300 mb-4">
+                Vous avez {pendingChanges.size} modification(s) en attente :
               </p>
+              
+              {/* Liste des changements */}
+              <div className="bg-gray-900/50 rounded-lg p-4 mb-6 max-h-96 overflow-y-auto">
+                {Array.from(pendingChanges.entries()).map(([key, change]) => {
+                  const serverIp = key.split('-')[0];
+                  const server = servers.find(s => s.ip === serverIp);
+                  const platformIcon = change.platform === 'ios' ? '🍎' : '🤖';
+                  const statusIcon = change.status === 'premium' ? '⭐' : change.status === 'gratuit' ? '✓' : '🚫';
+                  const statusText = change.status === 'premium' ? 'Premium' : change.status === 'gratuit' ? 'Gratuit' : 'Indisponible';
+                  const statusColor = change.status === 'premium' ? 'text-yellow-400' : change.status === 'gratuit' ? 'text-green-400' : 'text-red-400';
+                  
+                  return (
+                    <div key={key} className="flex items-center justify-between py-2 border-b border-gray-700 last:border-b-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono text-gray-400">{serverIp}</span>
+                        <span className="text-xs text-gray-500">({server?.name || 'Serveur'})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{platformIcon} {change.platform.toUpperCase()}</span>
+                        <span className="text-lg">→</span>
+                        <span className={`text-sm font-semibold ${statusColor}`}>{statusIcon} {statusText}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
               <div className="flex gap-3 justify-end">
                 <button
                   onClick={() => setShowConfirmModal(false)}
