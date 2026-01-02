@@ -4,7 +4,7 @@ import { Server } from '@/types/server';
 
 interface ServerCardProps {
   server: Server;
-  onVPNConfigChange?: (serverIp: string, platform: 'ios' | 'android', status: string) => void;
+  onVPNConfigChange?: (serverIp: string, platform: 'ios' | 'android', status: string, refPath?: string) => void;
 }
 
 export default function ServerCard({ server, onVPNConfigChange }: ServerCardProps) {
@@ -60,55 +60,91 @@ export default function ServerCard({ server, onVPNConfigChange }: ServerCardProp
         {/* VPN Config Status */}
         {server.vpnConfig && (
           <div className="mb-3 space-y-2">
-            {server.vpnConfig.ios && (
-              <div className="flex items-center justify-between">
-                <span className="text-gray-300 text-xs font-semibold">🍎 iOS</span>
-                <select
-                  value={
-                    !server.vpnConfig.ios.available ? 'indisponible' :
-                    server.vpnConfig.ios.isPremium ? 'premium' : 'gratuit'
-                  }
-                  onChange={(e) => onVPNConfigChange?.(server.ip, 'ios', e.target.value)}
-                  className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
-                >
-                  <option value="premium">⭐ Premium</option>
-                  <option value="gratuit">✓ Gratuit</option>
-                  <option value="indisponible">🚫 Indisponible</option>
-                </select>
+            {/* iOS entries (support doublons) */}
+            {(server.vpnConfig.iosMultiple?.length || server.vpnConfig.ios) && (
+              <div className="space-y-1">
+                {(server.vpnConfig.iosMultiple && server.vpnConfig.iosMultiple.length > 0
+                  ? server.vpnConfig.iosMultiple
+                  : server.vpnConfig.ios ? [server.vpnConfig.ios] : []
+                ).map((entry, idx) => (
+                  <div key={`ios-${entry.refPath || entry.id || idx}`} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-gray-300 font-semibold">
+                      <span>🍎 iOS</span>
+                      {(entry.id || entry.order !== undefined) && (
+                        <span className="px-2 py-0.5 rounded bg-gray-700 text-gray-200">
+                          {entry.id || entry.order}
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      value={!entry.available ? 'indisponible' : entry.isPremium ? 'premium' : 'gratuit'}
+                      onChange={(e) => onVPNConfigChange?.(server.ip, 'ios', e.target.value, entry.refPath)}
+                      className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
+                    >
+                      <option value="premium">⭐ Premium</option>
+                      <option value="gratuit">✓ Gratuit</option>
+                      <option value="indisponible">🚫 Indisponible</option>
+                    </select>
+                  </div>
+                ))}
               </div>
             )}
-            {server.vpnConfig.android && (
-              <div className="flex items-center justify-between">
-                <span className="text-gray-300 text-xs font-semibold">🤖 Android</span>
-                <select
-                  value={
-                    !server.vpnConfig.android.available ? 'indisponible' :
-                    server.vpnConfig.android.isPremium ? 'premium' : 'gratuit'
-                  }
-                  onChange={(e) => onVPNConfigChange?.(server.ip, 'android', e.target.value)}
-                  className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
-                >
-                  <option value="premium">⭐ Premium</option>
-                  <option value="gratuit">✓ Gratuit</option>
-                  <option value="indisponible">🚫 Indisponible</option>
-                </select>
+
+            {/* Android entries (support doublons) */}
+            {(server.vpnConfig.androidMultiple?.length || server.vpnConfig.android) && (
+              <div className="space-y-1">
+                {(server.vpnConfig.androidMultiple && server.vpnConfig.androidMultiple.length > 0
+                  ? server.vpnConfig.androidMultiple
+                  : server.vpnConfig.android ? [server.vpnConfig.android] : []
+                ).map((entry, idx) => (
+                  <div key={`android-${entry.refPath || entry.id || idx}`} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-gray-300 font-semibold">
+                      <span>🤖 Android</span>
+                      {(entry.id || entry.order !== undefined) && (
+                        <span className="px-2 py-0.5 rounded bg-gray-700 text-gray-200">
+                          {entry.id || entry.order}
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      value={!entry.available ? 'indisponible' : entry.isPremium ? 'premium' : 'gratuit'}
+                      onChange={(e) => onVPNConfigChange?.(server.ip, 'android', e.target.value, entry.refPath)}
+                      className="bg-gray-700 text-white text-xs px-2 py-1 rounded border border-gray-600"
+                    >
+                      <option value="premium">⭐ Premium</option>
+                      <option value="gratuit">✓ Gratuit</option>
+                      <option value="indisponible">🚫 Indisponible</option>
+                    </select>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
 
-        {/* Renewal Date (MVPS only) */}
-        {server.renewalDate && server.provider === 'mvps' && (
-          <div className="mb-3 bg-blue-900/30 border border-blue-700/50 rounded px-2 py-1">
-            <span className="text-blue-300 text-sm font-semibold">📅 Renouvellement: {server.renewalDate}</span>
+        {/* Renewal Date */}
+        {server.renewalDate && (
+          <div className={`mb-3 border rounded px-2 py-1 ${
+            server.provider === 'mvps' 
+              ? 'bg-blue-900/30 border-blue-700/50' 
+              : 'bg-purple-900/30 border-purple-700/50'
+          }`}>
+            <span className={`text-sm font-semibold ${
+              server.provider === 'mvps' 
+                ? 'text-blue-300' 
+                : 'text-purple-300'
+            }`}>📅 Renouvellement: {server.renewalDate}</span>
           </div>
         )}
 
         {/* Specs */}
-        <div className="mb-3 text-sm text-gray-400 space-y-1">
-          {server.cpu > 0 && <div>💻 {server.cpu} vCPU{server.cpu > 1 ? 's' : ''}</div>}
-          {server.ram > 0 && <div>🧠 {server.ram} GB RAM</div>}
-        </div>
+        {(server.cpu > 0 || server.ram > 0 || server.disk > 0) && (
+          <div className="mb-3 text-sm text-gray-400 space-y-1">
+            {server.cpu > 0 && <div>💻 {server.cpu} vCPU{server.cpu > 1 ? 's' : ''}</div>}
+            {server.ram > 0 && <div>🧠 {server.ram} GB RAM</div>}
+            {server.disk > 0 && <div>💾 {server.disk} GB Disque</div>}
+          </div>
+        )}
 
         {/* Disk Usage */}
         {server.diskUsage !== undefined && server.disk > 0 && (
@@ -136,18 +172,38 @@ export default function ServerCard({ server, onVPNConfigChange }: ServerCardProp
           <div className="mb-3">
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-400">Bande passante</span>
-              <span className="text-white font-semibold">
-                {server.bandwidth.used.toFixed(0)} / {server.bandwidth.total} GB
-              </span>
-          </div>
+            </div>
+            <div className="flex justify-between items-baseline">
+              {/* Badge illimité pour les serveurs avec bandwidth.total >= 999999999 */}
+              {server.bandwidth.total >= 999999999 ? (
+                <span className="text-white font-semibold text-sm">
+                  {server.bandwidth.used.toFixed(0)} / <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent font-bold text-lg">∞</span> GB
+                </span>
+              ) : (
+                <span className="text-white font-semibold text-sm">
+                  {server.bandwidth.used.toFixed(0)} / {server.bandwidth.total} GB
+                </span>
+              )}
+              {server.bandwidth.total < 999999999 && (
+                <span className="text-gray-400 text-xs">({((server.bandwidth.used / server.bandwidth.total) * 100).toFixed(1)}%)</span>
+              )}
+            </div>
+          {/* Barre de progression pour tous les serveurs */}
           <div className="w-full bg-gray-700 rounded-full h-2">
-            <div
-              className={`h-2 rounded-full transition-all ${
-                server.bandwidth.used > server.bandwidth.total ? 'bg-red-500' :
-                (server.bandwidth.used / server.bandwidth.total) > 0.8 ? 'bg-yellow-500' : 'bg-blue-500'
-              }`}
-              style={{ width: `${Math.min((server.bandwidth.used / server.bandwidth.total) * 100, 100)}%` }}
-            />
+            {server.bandwidth.total >= 999999999 ? (
+              <div
+                className="h-2 rounded-full transition-all bg-gradient-to-r from-purple-500 to-pink-500"
+                style={{ width: '50%' }}
+              />
+            ) : (
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  server.bandwidth.used > server.bandwidth.total ? 'bg-red-500' :
+                  (server.bandwidth.used / server.bandwidth.total) > 0.8 ? 'bg-yellow-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${Math.min((server.bandwidth.used / server.bandwidth.total) * 100, 100)}%` }}
+              />
+            )}
           </div>
         </div>
       )}

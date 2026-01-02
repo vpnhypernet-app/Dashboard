@@ -1,3 +1,21 @@
+export interface VpnEntry {
+  available: boolean;
+  isPremium: boolean;
+  profileType?: string;
+  refPath?: string; // chemin précis dans Firebase pour cibler un doublon
+  id?: string;      // identifiant Firebase/ordre
+  order?: number | string;
+  country?: string;
+  name?: string;
+}
+
+export interface VpnConfig {
+  ios?: VpnEntry;
+  android?: VpnEntry;
+  iosMultiple?: VpnEntry[];
+  androidMultiple?: VpnEntry[];
+}
+
 export interface Server {
   id: string;
   name: string;
@@ -16,18 +34,7 @@ export interface Server {
   currency: string;
   location?: string;
   renewalDate?: string; // Date de renouvellement (MVPS uniquement)
-  vpnConfig?: {
-    ios?: {
-      available: boolean;
-      isPremium: boolean;
-      profileType: string;
-    };
-    android?: {
-      available: boolean;
-      isPremium: boolean;
-      profileType: string;
-    };
-  };
+  vpnConfig?: VpnConfig;
 }
 
 export interface ApiResponse {

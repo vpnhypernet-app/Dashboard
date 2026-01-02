@@ -1,28 +1,61 @@
 import * as admin from 'firebase-admin';
 
-// Initialiser Firebase Admin (singleton)
-if (!admin.apps.length) {
-  const privateKey = process.env.FIREBASE_ANDROID_PRIVATE_KEY?.replace(/\\n/g, '\n');
+// Initialiser Firebase Admin pour Dashboard (notes)
+let dashboardApp: any = null;
+if (!admin.apps.some(app => app?.name === 'dashboard')) {
+  const dashboardPrivateKey = process.env.FIREBASE_DASHBOARD_PRIVATE_KEY?.replace(/\\n/g, '\n');
   
-  admin.initializeApp({
+  dashboardApp = admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_DASHBOARD_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_DASHBOARD_CLIENT_EMAIL,
+      privateKey: dashboardPrivateKey,
+    }),
+    databaseURL: process.env.FIREBASE_DASHBOARD_DATABASE_URL,
+  }, 'dashboard');
+}
+
+// Initialiser Firebase Admin pour iOS/Android (Remote Config)
+let iosAndroidApp: any = null;
+if (!admin.apps.some(app => app?.name === 'ios-android')) {
+  const iosAndroidPrivateKey = process.env.FIREBASE_IOS_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  
+  iosAndroidApp = admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_IOS_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_IOS_CLIENT_EMAIL,
+      privateKey: iosAndroidPrivateKey,
+    }),
+  }, 'ios-android');
+}
+
+// Initialiser Firebase Admin pour Android Realtime Database
+let androidApp: any = null;
+if (!admin.apps.some(app => app?.name === 'android')) {
+  const androidPrivateKey = process.env.FIREBASE_ANDROID_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  
+  androidApp = admin.initializeApp({
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_ANDROID_PROJECT_ID,
       clientEmail: process.env.FIREBASE_ANDROID_CLIENT_EMAIL,
-      privateKey: privateKey,
+      privateKey: androidPrivateKey,
     }),
     databaseURL: process.env.FIREBASE_ANDROID_DATABASE_URL,
-  });
+  }, 'android');
 }
 
 export const firebaseAdmin = admin;
-export const realtimeDB = admin.database();
+export const realtimeDB = dashboardApp?.database() || admin.app('dashboard').database();
+export const iosAndroidAdmin = iosAndroidApp || admin.app('ios-android');
+export const androidDB = androidApp?.database() || admin.app('android').database();
 
 /**
- * Récupérer la configuration Remote Config
+ * Récupérer la configuration Remote Config (iOS/Android)
  */
 export async function getRemoteConfig(): Promise<any> {
   try {
-    const template = await admin.remoteConfig().getTemplate();
+    const remoteConfig = iosAndroidAdmin.remoteConfig();
+    const template = await remoteConfig.getTemplate();
     
     // Récupérer les paramètres spécifiques
     const iosServers = template.parameters['ios_servers'];
@@ -42,11 +75,12 @@ export async function getRemoteConfig(): Promise<any> {
 }
 
 /**
- * Mettre à jour Remote Config
+ * Mettre à jour Remote Config (iOS/Android)
  */
 export async function updateRemoteConfig(platform: 'ios' | 'android', config: any): Promise<void> {
   try {
-    const template = await admin.remoteConfig().getTemplate();
+    const remoteConfig = iosAndroidAdmin.remoteConfig();
+    const template = await remoteConfig.getTemplate();
     
     const parameterKey = `${platform}_servers`;
     const configWithTimestamp = {
@@ -61,7 +95,7 @@ export async function updateRemoteConfig(platform: 'ios' | 'android', config: an
       description: `Configuration des serveurs ${platform.toUpperCase()}`,
     };
     
-    await admin.remoteConfig().publishTemplate(template);
+    await remoteConfig.publishTemplate(template);
     console.log(`Remote Config mis à jour pour ${platform}`);
   } catch (error) {
     console.error('Erreur updateRemoteConfig:', error);
@@ -162,7 +196,7 @@ export async function markServerPremium(serverId: string, serverName: string): P
  */
 export async function getAndroidConfigFromFirebase(): Promise<any> {
   try {
-    const snapshot = await realtimeDB.ref('/').once('value');
+    const snapshot = await androidDB.ref('/').once('value');
     return snapshot.val();
   } catch (error) {
     console.error('Erreur lecture Android Firebase:', error);
@@ -232,11 +266,22 @@ export async function getIosConfigFromFirebase(): Promise<any> {
 export async function updateAndroidServerInFirebase(
   serverIp: string, 
   isPremium: boolean, 
-  isAvailable: boolean
+  isAvailable: boolean,
+  refPath?: string,
 ): Promise<boolean> {
   try {
+    // Si on a un chemin précis (doublons), l'utiliser directement
+    if (refPath) {
+      await androidDB.ref(refPath).update({
+        ispremium: isPremium ? 1 : 0,
+        isavailable: isAvailable ? 1 : 0
+      });
+      console.log(`✅ Serveur Android ${serverIp} mis à jour via refPath ${refPath}`);
+      return true;
+    }
+
     // Lire toute la structure pour trouver le serveur
-    const snapshot = await realtimeDB.ref('/countries').once('value');
+    const snapshot = await androidDB.ref('/countries').once('value');
     const countries = snapshot.val();
     
     if (!countries) {
@@ -249,7 +294,7 @@ export async function updateAndroidServerInFirebase(
         for (const [serverKey, server] of Object.entries(country.servers) as any[]) {
           if (server.ipaddress === serverIp) {
             // Serveur trouvé - mettre à jour seulement les champs nécessaires
-            await realtimeDB
+            await androidDB
               .ref(`/countries/${countryKey}/servers/${serverKey}`)
               .update({
                 ispremium: isPremium ? 1 : 0,
@@ -278,7 +323,8 @@ export async function updateAndroidServerInFirebase(
 export async function updateIosServerInFirebase(
   serverIp: string, 
   isPremium: boolean, 
-  isAvailable: boolean
+  isAvailable: boolean,
+  refPath?: string,
 ): Promise<boolean> {
   try {
     const iosProjectId = process.env.FIREBASE_IOS_PROJECT_ID;
@@ -314,8 +360,19 @@ export async function updateIosServerInFirebase(
       throw new Error('Structure iOS invalide dans Firebase - attendu un tableau dans /servers');
     }
     
-    // Trouver le serveur par IP
-    const serverIndex = servers.findIndex((s: any) => s.ipaddress === serverIp);
+    // Trouver le serveur par IP ou par refPath (doublons)
+    let serverIndex = -1;
+    if (refPath && refPath.startsWith('/servers/')) {
+      const idxStr = refPath.replace('/servers/', '');
+      const idx = parseInt(idxStr, 10);
+      if (!Number.isNaN(idx) && servers[idx]) {
+        serverIndex = idx;
+      }
+    }
+
+    if (serverIndex === -1) {
+      serverIndex = servers.findIndex((s: any) => s.ipaddress === serverIp);
+    }
     
     if (serverIndex === -1) {
       console.warn(`⚠️ Serveur iOS ${serverIp} non trouvé dans Firebase`);

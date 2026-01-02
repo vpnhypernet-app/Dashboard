@@ -24,7 +24,9 @@ export async function GET() {
     const alerts = checkAlerts(servers);
     
     // Automatisation Firebase Remote Config
-    const firebaseEnabled = process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY;
+    const firebaseEnabled =
+      (process.env.FIREBASE_IOS_PROJECT_ID && process.env.FIREBASE_IOS_PRIVATE_KEY) ||
+      (process.env.FIREBASE_ANDROID_PROJECT_ID && process.env.FIREBASE_ANDROID_PRIVATE_KEY);
     if (firebaseEnabled) {
       await automateServerAvailability(servers);
     }

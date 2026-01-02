@@ -10,9 +10,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>('');
-  const [filterProvider, setFilterProvider] = useState<'all' | 'mvps' | 'oneprovider'>('all');
-  const [filterVPN, setFilterVPN] = useState<'all' | 'premium' | 'free' | 'unavailable' | 'difference'>('all');
-  const [pendingChanges, setPendingChanges] = useState<Map<string, {platform: 'ios' | 'android', status: string}>>(new Map());
+  const [filterProvider, setFilterProvider] = useState<'all' | 'mvps' | 'oneprovider' | 'online' | 'offline'>('all');
+  const [filterVPN, setFilterVPN] = useState<'all' | 'premium' | 'free' | 'unavailable' | 'difference' | 'bandwidth95' | 'duplicates'>('all');
+  const [sortBy, setSortBy] = useState<'none' | 'bandwidth-gb' | 'bandwidth-percent' | 'renewal'>('none');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [pendingChanges, setPendingChanges] = useState<Map<string, {platform: 'ios' | 'android', status: string, refPath?: string}>>(new Map());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const fetchServers = async () => {
@@ -38,7 +40,7 @@ export default function Dashboard() {
     }
   };
 
-  const updateVPNConfig = (serverIp: string, platform: 'ios' | 'android', newStatus: string) => {
+  const updateVPNConfig = (serverIp: string, platform: 'ios' | 'android', newStatus: string, refPath?: string) => {
     // Trouver le serveur original (depuis localStorage pour avoir la vraie valeur initiale)
     const savedServers = localStorage.getItem('dashboardServers');
     const originalServers: Server[] = savedServers ? JSON.parse(savedServers) : servers;
@@ -46,7 +48,9 @@ export default function Dashboard() {
     
     if (!originalServer?.vpnConfig) return;
     
-    const originalConfig = platform === 'ios' ? originalServer.vpnConfig.ios : originalServer.vpnConfig.android;
+    const originalConfig = platform === 'ios'
+      ? (refPath && originalServer.vpnConfig.iosMultiple ? originalServer.vpnConfig.iosMultiple.find((e: any) => e.refPath === refPath) : originalServer.vpnConfig.ios)
+      : (refPath && originalServer.vpnConfig.androidMultiple ? originalServer.vpnConfig.androidMultiple.find((e: any) => e.refPath === refPath) : originalServer.vpnConfig.android);
     if (!originalConfig) return;
     
     // Construire le statut original
@@ -63,22 +67,46 @@ export default function Dashboard() {
       if (!updatedServer.vpnConfig) return s;
       
       if (platform === 'ios' && updatedServer.vpnConfig.ios) {
+        const updatedIos = {
+          ...updatedServer.vpnConfig.ios,
+          available: newStatus !== 'indisponible',
+          isPremium: newStatus === 'premium',
+        };
+
+        let iosMultiple = updatedServer.vpnConfig.iosMultiple;
+        if (refPath && iosMultiple) {
+          iosMultiple = iosMultiple.map(entry => (
+            entry.refPath === refPath
+              ? { ...entry, available: newStatus !== 'indisponible', isPremium: newStatus === 'premium' }
+              : entry
+          ));
+        }
+
         updatedServer.vpnConfig = {
           ...updatedServer.vpnConfig,
-          ios: {
-            ...updatedServer.vpnConfig.ios,
-            available: newStatus !== 'indisponible',
-            isPremium: newStatus === 'premium',
-          },
+          ios: refPath && iosMultiple ? iosMultiple.find(e => e.refPath === refPath) || updatedIos : updatedIos,
+          iosMultiple,
         };
       } else if (platform === 'android' && updatedServer.vpnConfig.android) {
+        const updatedAndroid = {
+          ...updatedServer.vpnConfig.android,
+          available: newStatus !== 'indisponible',
+          isPremium: newStatus === 'premium',
+        };
+
+        let androidMultiple = updatedServer.vpnConfig.androidMultiple;
+        if (refPath && androidMultiple) {
+          androidMultiple = androidMultiple.map(entry => (
+            entry.refPath === refPath
+              ? { ...entry, available: newStatus !== 'indisponible', isPremium: newStatus === 'premium' }
+              : entry
+          ));
+        }
+
         updatedServer.vpnConfig = {
           ...updatedServer.vpnConfig,
-          android: {
-            ...updatedServer.vpnConfig.android,
-            available: newStatus !== 'indisponible',
-            isPremium: newStatus === 'premium',
-          },
+          android: refPath && androidMultiple ? androidMultiple.find(e => e.refPath === refPath) || updatedAndroid : updatedAndroid,
+          androidMultiple,
         };
       }
       
@@ -88,14 +116,14 @@ export default function Dashboard() {
     // Gérer les pendingChanges
     setPendingChanges(prev => {
       const newChanges = new Map(prev);
-      const key = `${serverIp}-${platform}`;
+      const key = `${serverIp}-${platform}-${refPath || 'default'}`;
       
       // Si on revient à la valeur originale, supprimer le changement en attente
       if (originalStatus === newStatus) {
         newChanges.delete(key);
       } else {
         // Sinon, ajouter/mettre à jour le changement
-        newChanges.set(key, { platform, status: newStatus });
+        newChanges.set(key, { platform, status: newStatus, refPath });
       }
       
       return newChanges;
@@ -135,11 +163,11 @@ export default function Dashboard() {
       
       // Envoyer chaque modification
       for (const [key, change] of pendingChanges.entries()) {
-        const serverIp = key.split('-')[0];
+        const [serverIp] = key.split('-');
         await fetch('/api/config/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ serverIp, platform: change.platform, status: change.status }),
+          body: JSON.stringify({ serverIp, platform: change.platform, status: change.status, refPath: change.refPath }),
         });
       }
       
@@ -169,29 +197,57 @@ export default function Dashboard() {
   }, []);
 
   const filteredServers = (() => {
-    let filtered = filterProvider === 'all' 
-      ? servers 
-      : servers.filter(s => s.provider === filterProvider);
+    let filtered = servers;
     
-    // Filtres VPN
+    // Appliquer le filtre provider/status
+    if (filterProvider === 'mvps') {
+      filtered = filtered.filter(s => s.provider === 'mvps');
+    } else if (filterProvider === 'oneprovider') {
+      filtered = filtered.filter(s => s.provider === 'oneprovider');
+    } else if (filterProvider === 'online') {
+      filtered = filtered.filter(s => s.status === 'online');
+    } else if (filterProvider === 'offline') {
+      filtered = filtered.filter(s => s.status === 'offline');
+    }
+    
+    // Filtres VPN et bande passante
     if (filterVPN === 'all') return filtered;
     
+    if (filterVPN === 'bandwidth95') {
+      return filtered.filter(s => {
+        // Ignorer les serveurs avec bande passante illimitée
+        if (s.bandwidth.total >= 999999999) return false;
+        
+        const usagePercent = (s.bandwidth.used / s.bandwidth.total) * 100;
+        return usagePercent > 95;
+      });
+    }
+    
     if (filterVPN === 'premium') return filtered.filter(s => {
-      // Premium si au moins iOS OU Android est premium et disponible
-      return (s.vpnConfig?.ios?.isPremium && s.vpnConfig.ios.available) || 
-             (s.vpnConfig?.android?.isPremium && s.vpnConfig.android.available);
+      // Premium si au moins iOS OU Android est premium et disponible (inclure les doublons)
+      const hasIosPremium = s.vpnConfig?.ios?.isPremium && s.vpnConfig.ios.available || 
+                            s.vpnConfig?.iosMultiple?.some(e => e.isPremium && e.available);
+      const hasAndroidPremium = s.vpnConfig?.android?.isPremium && s.vpnConfig.android.available || 
+                                s.vpnConfig?.androidMultiple?.some(e => e.isPremium && e.available);
+      return hasIosPremium || hasAndroidPremium;
     });
     
     if (filterVPN === 'free') return filtered.filter(s => {
-      // Gratuit si au moins iOS OU Android est gratuit (non premium) et disponible
-      return (s.vpnConfig?.ios && !s.vpnConfig.ios.isPremium && s.vpnConfig.ios.available) || 
-             (s.vpnConfig?.android && !s.vpnConfig.android.isPremium && s.vpnConfig.android.available);
+      // Gratuit si au moins iOS OU Android est gratuit (non premium) et disponible (inclure les doublons)
+      const hasIosFree = (s.vpnConfig?.ios && !s.vpnConfig.ios.isPremium && s.vpnConfig.ios.available) || 
+                         s.vpnConfig?.iosMultiple?.some(e => !e.isPremium && e.available);
+      const hasAndroidFree = (s.vpnConfig?.android && !s.vpnConfig.android.isPremium && s.vpnConfig.android.available) || 
+                             s.vpnConfig?.androidMultiple?.some(e => !e.isPremium && e.available);
+      return hasIosFree || hasAndroidFree;
     });
     
     if (filterVPN === 'unavailable') return filtered.filter(s => {
-      // Indisponible si au moins iOS OU Android est indisponible
-      return (s.vpnConfig?.ios && !s.vpnConfig.ios.available) ||
-             (s.vpnConfig?.android && !s.vpnConfig.android.available);
+      // Indisponible si au moins iOS OU Android est indisponible (inclure les doublons)
+      const hasIosUnavailable = (s.vpnConfig?.ios && !s.vpnConfig.ios.available) ||
+                                s.vpnConfig?.iosMultiple?.some(e => !e.available);
+      const hasAndroidUnavailable = (s.vpnConfig?.android && !s.vpnConfig.android.available) ||
+                                    s.vpnConfig?.androidMultiple?.some(e => !e.available);
+      return hasIosUnavailable || hasAndroidUnavailable;
     });
     
     if (filterVPN === 'difference') {
@@ -215,31 +271,101 @@ export default function Dashboard() {
       });
     }
     
+    if (filterVPN === 'duplicates') {
+      // Doublons: serveurs avec plus d'une entrée iOS OU plus d'une entrée Android (vrais doublons)
+      return filtered.filter(s => {
+        const hasMultipleIos = (s.vpnConfig?.iosMultiple?.length ?? 0) > 1;
+        const hasMultipleAndroid = (s.vpnConfig?.androidMultiple?.length ?? 0) > 1;
+        return hasMultipleIos || hasMultipleAndroid;
+      });
+    }
+    
     return filtered;
   })();
 
+  // Appliquer le tri
+  const sortedServers = (() => {
+    if (sortBy === 'none') return filteredServers;
+    
+    const sorted = [...filteredServers].sort((a, b) => {
+      if (sortBy === 'bandwidth-gb') {
+        // Ignorer les serveurs avec bande passante illimitée pour le tri
+        const aIsUnlimited = a.bandwidth.total >= 999999999;
+        const bIsUnlimited = b.bandwidth.total >= 999999999;
+        
+        if (aIsUnlimited && bIsUnlimited) return 0;
+        if (aIsUnlimited) return 1; // Les illimités à la fin
+        if (bIsUnlimited) return -1;
+        
+        const aUsed = a.bandwidth.used;
+        const bUsed = b.bandwidth.used;
+        return sortOrder === 'asc' ? aUsed - bUsed : bUsed - aUsed;
+      }
+      
+      if (sortBy === 'bandwidth-percent') {
+        // Tri par pourcentage de bande passante utilisée
+        const aIsUnlimited = a.bandwidth.total >= 999999999;
+        const bIsUnlimited = b.bandwidth.total >= 999999999;
+        
+        if (aIsUnlimited && bIsUnlimited) return 0;
+        if (aIsUnlimited) return 1; // Les illimités à la fin
+        if (bIsUnlimited) return -1;
+        
+        const aPercent = (a.bandwidth.used / a.bandwidth.total) * 100;
+        const bPercent = (b.bandwidth.used / b.bandwidth.total) * 100;
+        return sortOrder === 'asc' ? aPercent - bPercent : bPercent - aPercent;
+      }
+      
+      if (sortBy === 'renewal') {
+        // Tri par date de renouvellement (MVPS uniquement)
+        if (!a.renewalDate && !b.renewalDate) return 0;
+        if (!a.renewalDate) return 1; // Pas de date à la fin
+        if (!b.renewalDate) return -1;
+        
+        // Convertir les dates DD/MM/YYYY en timestamps
+        const parseDate = (dateStr: string) => {
+          const [day, month, year] = dateStr.split('/');
+          return new Date(`${year}-${month}-${day}`).getTime();
+        };
+        
+        const aTime = parseDate(a.renewalDate);
+        const bTime = parseDate(b.renewalDate);
+        return sortOrder === 'asc' ? aTime - bTime : bTime - aTime;
+      }
+      
+      return 0;
+    });
+    
+    return sorted;
+  })();
+
   // Calculer les coûts (pas de déduplication nécessaire maintenant)
-  const totalCostUSD = filteredServers
+  const totalCostUSD = sortedServers
     .filter(s => s.currency === 'USD')
     .reduce((sum, server) => sum + server.price, 0);
   
-  const totalCostEUR = filteredServers
+  const totalCostEUR = sortedServers
     .filter(s => s.currency === 'EUR')
     .reduce((sum, server) => sum + server.price, 0);
   
-  const onlineServers = filteredServers.filter(s => s.status === 'online').length;
+  // Taux de change USD vers EUR (approximatif : 1 USD = 0.92 EUR)
+  const USD_TO_EUR_RATE = 0.92;
+  const totalCostUSDInEUR = totalCostUSD * USD_TO_EUR_RATE;
+  const grandTotalEUR = totalCostEUR + totalCostUSDInEUR;
+  
+  const onlineServers = sortedServers.filter(s => s.status === 'online').length;
 
   // Stats VPN
   const vpnStats = {
-    premium: filteredServers.filter(s => 
+    premium: sortedServers.filter(s => 
       (s.vpnConfig?.ios?.isPremium && s.vpnConfig.ios.available) || 
       (s.vpnConfig?.android?.isPremium && s.vpnConfig.android.available)
     ).length,
-    free: filteredServers.filter(s => 
+    free: sortedServers.filter(s => 
       (s.vpnConfig?.ios && !s.vpnConfig.ios.isPremium && s.vpnConfig.ios.available) || 
       (s.vpnConfig?.android && !s.vpnConfig.android.isPremium && s.vpnConfig.android.available)
     ).length,
-    unavailable: filteredServers.filter(s => 
+    unavailable: sortedServers.filter(s =>
       (s.vpnConfig?.ios && !s.vpnConfig.ios.available) ||
       (s.vpnConfig?.android && !s.vpnConfig.android.available)
     ).length,
@@ -250,18 +376,29 @@ export default function Dashboard() {
     all: servers.length,
     mvps: servers.filter(s => s.provider === 'mvps').length,
     oneprovider: servers.filter(s => s.provider === 'oneprovider').length,
-    premium: servers.filter(s => 
-      (s.vpnConfig?.ios?.isPremium && s.vpnConfig.ios.available) || 
-      (s.vpnConfig?.android?.isPremium && s.vpnConfig.android.available)
-    ).length,
-    free: servers.filter(s => 
-      (s.vpnConfig?.ios && !s.vpnConfig.ios.isPremium && s.vpnConfig.ios.available) || 
-      (s.vpnConfig?.android && !s.vpnConfig.android.isPremium && s.vpnConfig.android.available)
-    ).length,
-    unavailable: servers.filter(s => 
-      (s.vpnConfig?.ios && !s.vpnConfig.ios.available) ||
-      (s.vpnConfig?.android && !s.vpnConfig.android.available)
-    ).length,
+    online: servers.filter(s => s.status === 'online').length,
+    offline: servers.filter(s => s.status === 'offline').length,
+    premium: servers.filter(s => {
+      const hasIosPremium = s.vpnConfig?.ios?.isPremium && s.vpnConfig.ios.available || 
+                            s.vpnConfig?.iosMultiple?.some(e => e.isPremium && e.available);
+      const hasAndroidPremium = s.vpnConfig?.android?.isPremium && s.vpnConfig.android.available || 
+                                s.vpnConfig?.androidMultiple?.some(e => e.isPremium && e.available);
+      return hasIosPremium || hasAndroidPremium;
+    }).length,
+    free: servers.filter(s => {
+      const hasIosFree = (s.vpnConfig?.ios && !s.vpnConfig.ios.isPremium && s.vpnConfig.ios.available) || 
+                         s.vpnConfig?.iosMultiple?.some(e => !e.isPremium && e.available);
+      const hasAndroidFree = (s.vpnConfig?.android && !s.vpnConfig.android.isPremium && s.vpnConfig.android.available) || 
+                             s.vpnConfig?.androidMultiple?.some(e => !e.isPremium && e.available);
+      return hasIosFree || hasAndroidFree;
+    }).length,
+    unavailable: servers.filter(s => {
+      const hasIosUnavailable = (s.vpnConfig?.ios && !s.vpnConfig.ios.available) ||
+                                s.vpnConfig?.iosMultiple?.some(e => !e.available);
+      const hasAndroidUnavailable = (s.vpnConfig?.android && !s.vpnConfig.android.available) ||
+                                    s.vpnConfig?.androidMultiple?.some(e => !e.available);
+      return hasIosUnavailable || hasAndroidUnavailable;
+    }).length,
     difference: servers.filter(s => {
       const ios = s.vpnConfig?.ios;
       const android = s.vpnConfig?.android;
@@ -270,6 +407,16 @@ export default function Dashboard() {
         return ios.isPremium !== android.isPremium || ios.available !== android.available;
       }
       return (ios && !android) || (!ios && android);
+    }).length,
+    duplicates: servers.filter(s => {
+      const hasMultipleIos = (s.vpnConfig?.iosMultiple?.length ?? 0) > 1;
+      const hasMultipleAndroid = (s.vpnConfig?.androidMultiple?.length ?? 0) > 1;
+      return hasMultipleIos || hasMultipleAndroid;
+    }).length,
+    bandwidth95: servers.filter(s => {
+      if (s.bandwidth.total >= 999999999) return false;
+      const usagePercent = (s.bandwidth.used / s.bandwidth.total) * 100;
+      return usagePercent > 95;
     }).length,
   };
 
@@ -342,9 +489,16 @@ export default function Dashboard() {
         )}
 
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
+        <div className="mb-8 flex justify-between items-start">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Tableau de Bord Serveurs</h1>
+            <div className="flex items-center gap-4 mb-2">
+              <h1 className="text-4xl font-bold text-white">Tableau de Bord Serveurs</h1>
+              {lastUpdate && (
+                <div className="text-sm text-gray-400">
+                  Dernière mise à jour: <span className="text-white font-semibold">{lastUpdate}</span>
+                </div>
+              )}
+            </div>
             <p className="text-gray-400">Surveillance de vos serveurs MVPS et OneProvider</p>
           </div>
           <div className="flex gap-3">
@@ -374,7 +528,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
           <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
             <div className="text-gray-400 text-sm mb-1">Total Serveurs</div>
             <div className="text-3xl font-bold text-white">{filteredServers.length}</div>
@@ -385,11 +539,17 @@ export default function Dashboard() {
           </div>
           <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
             <div className="text-gray-400 text-sm mb-1">Total USD/mois</div>
-            <div className="text-3xl font-bold text-white">${totalCostUSD.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-white">${totalCostUSD.toFixed(2)}</div>
+            <div className="text-xs text-gray-500 mt-1">≈ €{totalCostUSDInEUR.toFixed(2)}</div>
           </div>
           <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
             <div className="text-gray-400 text-sm mb-1">Total EUR/mois</div>
-            <div className="text-3xl font-bold text-white">€{totalCostEUR.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-white">€{totalCostEUR.toFixed(2)}</div>
+          </div>
+          <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg p-6 border border-blue-500">
+            <div className="text-blue-100 text-sm mb-1 font-semibold">GRAND TOTAL EUR/mois</div>
+            <div className="text-3xl font-bold text-white">€{grandTotalEUR.toFixed(2)}</div>
+            <div className="text-xs text-blue-200 mt-1">1 USD = {USD_TO_EUR_RATE} EUR</div>
           </div>
         </div>
 
@@ -411,10 +571,8 @@ export default function Dashboard() {
 
         {/* Filters */}
         <div className="flex flex-col gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="text-gray-400 text-sm">
-              Dernière mise à jour: {lastUpdate}
-            </div>
+          {/* Row 1: Provider filters + Tri */}
+          <div className="flex items-center justify-between">
             <div className="flex gap-2">
               <button
                 onClick={() => setFilterProvider('all')}
@@ -446,6 +604,48 @@ export default function Dashboard() {
                 >
                   OneProvider ({filterStats.oneprovider})
                 </button>
+                <button
+                  onClick={() => setFilterProvider('online')}
+                  className={`px-3 py-1 rounded-lg text-sm font-semibold transition-colors ${
+                    filterProvider === 'online' 
+                      ? 'bg-green-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  Online ({filterStats.online})
+                </button>
+                <button
+                  onClick={() => setFilterProvider('offline')}
+                  className={`px-3 py-1 rounded-lg text-sm font-semibold transition-colors ${
+                    filterProvider === 'offline' 
+                      ? 'bg-red-600 text-white' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  Offline ({filterStats.offline})
+                </button>
+            </div>
+            {/* Tri à droite */}
+            <div className="flex gap-2 items-center">
+              <span className="text-gray-400 text-sm">Trier par:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'none' | 'bandwidth-gb' | 'bandwidth-percent' | 'renewal')}
+                className="bg-gray-700 text-white text-sm px-3 py-1 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+              >
+                <option value="none">Aucun tri</option>
+                <option value="bandwidth-gb">Bande passante (GB)</option>
+                <option value="bandwidth-percent">Bande passante (%)</option>
+                <option value="renewal">Date de renouvellement</option>
+              </select>
+              {sortBy !== 'none' && (
+                <button
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="bg-gray-700 hover:bg-gray-600 text-white text-sm px-3 py-1 rounded-lg transition-colors"
+                >
+                  {sortOrder === 'asc' ? '↑ Croissant' : '↓ Décroissant'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -492,6 +692,16 @@ export default function Dashboard() {
               Indisponible ({filterStats.unavailable})
             </button>
             <button
+              onClick={() => setFilterVPN('duplicates')}
+              className={`px-3 py-1 rounded-lg text-sm font-semibold transition-colors ${
+                filterVPN === 'duplicates' 
+                  ? 'bg-indigo-500 text-white' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              Doublons ({filterStats.duplicates})
+            </button>
+            <button
               onClick={() => setFilterVPN('difference')}
               className={`px-3 py-1 rounded-lg text-sm font-semibold transition-colors ${
                 filterVPN === 'difference' 
@@ -500,6 +710,16 @@ export default function Dashboard() {
               }`}
             >
               Différences ({filterStats.difference})
+            </button>
+            <button
+              onClick={() => setFilterVPN('bandwidth95')}
+              className={`px-3 py-1 rounded-lg text-sm font-semibold transition-colors ${
+                filterVPN === 'bandwidth95' 
+                  ? 'bg-red-600 text-white' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              &gt; 95% ({filterStats.bandwidth95})
             </button>
           </div>
         </div>
@@ -512,9 +732,9 @@ export default function Dashboard() {
         )}
 
         {/* Server Grid */}
-        {filteredServers.length > 0 ? (
+        {sortedServers.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-fr">
-            {filteredServers.map((server, index) => (
+            {sortedServers.map((server, index) => (
               <ServerCard 
                 key={`${server.id}-${index}`} 
                 server={server} 

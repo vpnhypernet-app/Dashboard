@@ -26,34 +26,51 @@ async function enrichServersWithVPNConfig(servers: any[]) {
       androidData = { countries: {} };
     }
     
-    // Créer des maps pour recherche rapide par IP
-    const iosServersByIP = new Map();
-    const androidServersByIP = new Map();
+    // Créer des maps pour recherche rapide par IP (supporte doublons par IP)
+    const iosServersByIP = new Map<string, any[]>();
+    const androidServersByIP = new Map<string, any[]>();
     
     // Parcourir iOS (structure: { servers: [...] })
     if (iosData.servers && Array.isArray(iosData.servers)) {
-      iosData.servers.forEach((server: any) => {
+      iosData.servers.forEach((server: any, index: number) => {
         if (server.ipaddress) {
-          iosServersByIP.set(server.ipaddress, {
+          const entry = {
             available: server.isavailable === 1,
             isPremium: server.ispremium === 1,
             profileType: server.profiletype,
-          });
+            refPath: `/servers/${index}`,
+            id: server.id || server.order || String(index),
+            order: server.order ?? index,
+            name: server.city || server.ipaddress,
+          };
+
+          const list = iosServersByIP.get(server.ipaddress) || [];
+          list.push(entry);
+          iosServersByIP.set(server.ipaddress, list);
         }
       });
     }
     
     // Parcourir Android
     if (androidData.countries) {
-      Object.values(androidData.countries).forEach((country: any) => {
+      Object.entries(androidData.countries).forEach(([countryKey, country]: [string, any]) => {
         if (country.servers) {
-          Object.values(country.servers).forEach((server: any) => {
+          Object.entries(country.servers).forEach(([serverKey, server]: [string, any]) => {
             if (server.ipaddress) {
-              androidServersByIP.set(server.ipaddress, {
+              const entry = {
                 available: server.isavailable === 1,
                 isPremium: server.ispremium === 1,
                 profileType: server.profiletype,
-              });
+                refPath: `/countries/${countryKey}/servers/${serverKey}`,
+                id: server.id || serverKey,
+                order: server.order,
+                country: countryKey,
+                name: server.city || serverKey,
+              };
+
+              const list = androidServersByIP.get(server.ipaddress) || [];
+              list.push(entry);
+              androidServersByIP.set(server.ipaddress, list);
             }
           });
         }
@@ -64,15 +81,17 @@ async function enrichServersWithVPNConfig(servers: any[]) {
     return servers.map((server: any) => {
       const vpnConfig: any = {};
       
-      const iosConfig = iosServersByIP.get(server.ip);
-      const androidConfig = androidServersByIP.get(server.ip);
+      const iosList = iosServersByIP.get(server.ip) || [];
+      const androidList = androidServersByIP.get(server.ip) || [];
       
-      if (iosConfig) {
-        vpnConfig.ios = iosConfig;
+      if (iosList.length > 0) {
+        vpnConfig.iosMultiple = iosList;
+        vpnConfig.ios = iosList[0]; // compat pour affichage existant
       }
       
-      if (androidConfig) {
-        vpnConfig.android = androidConfig;
+      if (androidList.length > 0) {
+        vpnConfig.androidMultiple = androidList;
+        vpnConfig.android = androidList[0]; // compat pour affichage existant
       }
       
       return {

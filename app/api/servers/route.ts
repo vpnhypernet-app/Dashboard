@@ -1,94 +1,108 @@
 import { NextResponse } from 'next/server';
 import { fetchAllServers } from '@/lib/api';
 import { getIosConfigFromFirebase, getAndroidConfigFromFirebase } from '@/lib/firebase';
-import path from 'path';
-import { promises as fs } from 'fs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30; // 30 seconds max
 
 async function enrichServersWithVPNConfig(servers: any[]) {
   try {
-    // 🔥 Lire les configs VPN depuis Firebase avec timeout
     let iosData, androidData;
-    
+
     // iOS depuis Firebase avec timeout de 5 secondes
     try {
       const iosPromise = getIosConfigFromFirebase();
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Firebase iOS timeout')), 5000)
       );
       iosData = await Promise.race([iosPromise, timeoutPromise]);
       console.log('✅ Config iOS chargée depuis Firebase pour enrichissement');
     } catch (error) {
       console.warn('⚠️ Erreur Firebase iOS, utilisation config vide:', error);
-      // Sur Vercel, les fichiers data/ ne sont pas déployés, utiliser config vide
       iosData = { servers: [] };
     }
-    
+
     // Android depuis Firebase avec timeout de 5 secondes
     try {
       const androidPromise = getAndroidConfigFromFirebase();
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Firebase Android timeout')), 5000)
       );
       androidData = await Promise.race([androidPromise, timeoutPromise]);
       console.log('✅ Config Android chargée depuis Firebase pour enrichissement');
     } catch (error) {
       console.warn('⚠️ Erreur Firebase Android, utilisation config vide:', error);
-      // Sur Vercel, les fichiers data/ ne sont pas déployés, utiliser config vide
       androidData = { countries: {} };
     }
-    
-    // Créer des maps pour recherche rapide par IP
-    const iosServersByIP = new Map();
-    const androidServersByIP = new Map();
-    
+
+    // Créer des maps pour recherche rapide par IP (supporte doublons par IP)
+    const iosServersByIP = new Map<string, any[]>();
+    const androidServersByIP = new Map<string, any[]>();
+
     // Parcourir iOS (structure: { servers: [...] })
     if (iosData.servers && Array.isArray(iosData.servers)) {
-      iosData.servers.forEach((server: any) => {
+      iosData.servers.forEach((server: any, index: number) => {
         if (server.ipaddress) {
-          iosServersByIP.set(server.ipaddress, {
+          const entry = {
             available: server.isavailable === 1,
             isPremium: server.ispremium === 1,
             profileType: server.profiletype,
-          });
+            refPath: `/servers/${index}`,
+            id: server.id || server.order || String(index),
+            order: server.order ?? index,
+            name: server.city || server.ipaddress,
+          };
+
+          const list = iosServersByIP.get(server.ipaddress) || [];
+          list.push(entry);
+          iosServersByIP.set(server.ipaddress, list);
         }
       });
     }
-    
+
     // Parcourir Android
     if (androidData.countries) {
-      Object.values(androidData.countries).forEach((country: any) => {
+      Object.entries(androidData.countries).forEach(([countryKey, country]: [string, any]) => {
         if (country.servers) {
-          Object.values(country.servers).forEach((server: any) => {
+          Object.entries(country.servers).forEach(([serverKey, server]: [string, any]) => {
             if (server.ipaddress) {
-              androidServersByIP.set(server.ipaddress, {
+              const entry = {
                 available: server.isavailable === 1,
                 isPremium: server.ispremium === 1,
                 profileType: server.profiletype,
-              });
+                refPath: `/countries/${countryKey}/servers/${serverKey}`,
+                id: server.id || serverKey,
+                order: server.order,
+                country: countryKey,
+                name: server.city || serverKey,
+              };
+
+              const list = androidServersByIP.get(server.ipaddress) || [];
+              list.push(entry);
+              androidServersByIP.set(server.ipaddress, list);
             }
           });
         }
       });
     }
-    
+
     // Enrichir chaque serveur avec iOS ET Android dans la même entrée
     return servers.map((server: any) => {
       const vpnConfig: any = {};
-      
-      const iosConfig = iosServersByIP.get(server.ip);
-      const androidConfig = androidServersByIP.get(server.ip);
-      
-      if (iosConfig) {
-        vpnConfig.ios = iosConfig;
+
+      const iosList = iosServersByIP.get(server.ip) || [];
+      const androidList = androidServersByIP.get(server.ip) || [];
+
+      if (iosList.length > 0) {
+        vpnConfig.iosMultiple = iosList;
+        vpnConfig.ios = iosList[0];
       }
-      
-      if (androidConfig) {
-        vpnConfig.android = androidConfig;
+
+      if (androidList.length > 0) {
+        vpnConfig.androidMultiple = androidList;
+        vpnConfig.android = androidList[0];
       }
-      
+
       return {
         ...server,
         vpnConfig: Object.keys(vpnConfig).length > 0 ? vpnConfig : undefined,

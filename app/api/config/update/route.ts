@@ -3,7 +3,7 @@ import { updateAndroidServerInFirebase, updateIosServerInFirebase } from '@/lib/
 
 export async function POST(request: Request) {
   try {
-    const { serverIp, platform, status } = await request.json();
+    const { serverIp, platform, status, refPath } = await request.json();
     
     if (!serverIp || !platform || !status) {
       return NextResponse.json(
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     if (platform === 'ios') {
       // 🔥 Mise à jour iOS dans Firebase Realtime Database
       try {
-        const updated = await updateIosServerInFirebase(serverIp, isPremium, isAvailable);
+        const updated = await updateIosServerInFirebase(serverIp, isPremium, isAvailable, refPath);
         
         if (updated) {
           return NextResponse.json({ 
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     } else if (platform === 'android') {
       // 🔥 Mise à jour Android dans Firebase Realtime Database
       try {
-        const updated = await updateAndroidServerInFirebase(serverIp, isPremium, isAvailable);
+        const updated = await updateAndroidServerInFirebase(serverIp, isPremium, isAvailable, refPath);
         
         if (updated) {
           return NextResponse.json({ 

@@ -1,5 +1,11 @@
 import { Server } from '@/types/server';
 
+const getOneProviderRenewalDate = () => {
+  const now = new Date();
+  const nextMonthFirst = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return nextMonthFirst.toLocaleDateString('fr-FR');
+};
+
 /**
  * Fetch servers from MVPS API
  * Documentation: https://www.mvps.net/api/doc/
@@ -294,6 +300,16 @@ export async function fetchOneProviderServers(): Promise<Server[]> {
           // Parse bandwidth data
           const bandwidthUsed = parseFloat(vmBandwidth.used || '0');
           const bandwidthLimit = parseFloat(vmBandwidth.limit || '0');
+          
+          // Pour les serveurs avec bande passante illimitée (OneProvider), utiliser un très grand nombre
+          const serverIp = server.ip_addr || vmInfo.ipaddress;
+          const unlimitedIPs = ['64.31.63.246', '172.245.233.76']; // Paris France et USA New York Free
+          
+          let finalBandwidthTotal = bandwidthLimit;
+          if (unlimitedIPs.includes(serverIp)) {
+            finalBandwidthTotal = 999999999; // Utiliser un très grand nombre au lieu de Infinity
+            console.log(`🔥 Serveur illimité détecté (IP: ${serverIp}), bandwidth défini à 999999999`);
+          }
 
           // Parse disk usage (if available in API, otherwise simulate for demo)
           const diskTotal = parseInt(vmInfo.space_gb || '0') || 0;
@@ -314,11 +330,12 @@ export async function fetchOneProviderServers(): Promise<Server[]> {
             diskUsage: diskUsed,
             bandwidth: {
               used: bandwidthUsed,
-              total: bandwidthLimit > 0 ? bandwidthLimit : 0,
+              total: finalBandwidthTotal,
             },
             price: monthlyPrice,
             currency: 'USD',
             location: server.location || `${vmInfo.city || 'Unknown'} - ${vmInfo.country || ''}`,
+            renewalDate: getOneProviderRenewalDate(),
           };
         } catch (error) {
           console.error(`Error fetching VM details for ${server.server_id}:`, error);
@@ -342,6 +359,7 @@ export async function fetchOneProviderServers(): Promise<Server[]> {
             price: monthlyPrice,
             currency: 'USD',
             location: server.location || 'Unknown',
+            renewalDate: getOneProviderRenewalDate(),
           };
         }
       })
