@@ -1,52 +1,109 @@
 import * as admin from 'firebase-admin';
 
+// Helper pour récupérer une variable avec fallback (utile pour Vercel qui expose FIREBASE_* sans suffixe)
+const envWithFallback = (preferred?: string, fallback?: string) => preferred || fallback;
+
 // Initialiser Firebase Admin pour Dashboard (notes)
 let dashboardApp: any = null;
 if (!admin.apps.some(app => app?.name === 'dashboard')) {
-  const dashboardPrivateKey = process.env.FIREBASE_DASHBOARD_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
+  const dashboardPrivateKey = envWithFallback(
+    process.env.FIREBASE_DASHBOARD_PRIVATE_KEY,
+    process.env.FIREBASE_PRIVATE_KEY,
+  )?.replace(/\\n/g, '\n');
+
+  const dashboardProjectId = envWithFallback(
+    process.env.FIREBASE_DASHBOARD_PROJECT_ID,
+    process.env.FIREBASE_PROJECT_ID,
+  );
+
+  const dashboardClientEmail = envWithFallback(
+    process.env.FIREBASE_DASHBOARD_CLIENT_EMAIL,
+    process.env.FIREBASE_CLIENT_EMAIL,
+  );
+
+  const dashboardDatabaseUrl = envWithFallback(
+    process.env.FIREBASE_DASHBOARD_DATABASE_URL,
+    process.env.FIREBASE_DATABASE_URL,
+  );
+
   dashboardApp = admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_DASHBOARD_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_DASHBOARD_CLIENT_EMAIL,
+      projectId: dashboardProjectId,
+      clientEmail: dashboardClientEmail,
       privateKey: dashboardPrivateKey,
     }),
-    databaseURL: process.env.FIREBASE_DASHBOARD_DATABASE_URL,
+    databaseURL: dashboardDatabaseUrl,
   }, 'dashboard');
 }
 
 // Initialiser Firebase Admin pour iOS/Android (Remote Config)
 let iosAndroidApp: any = null;
 if (!admin.apps.some(app => app?.name === 'ios-android')) {
-  const iosAndroidPrivateKey = process.env.FIREBASE_IOS_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
-  iosAndroidApp = admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_IOS_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_IOS_CLIENT_EMAIL,
-      privateKey: iosAndroidPrivateKey,
-    }),
-  }, 'ios-android');
+  const remoteConfigProjectId = envWithFallback(
+    process.env.FIREBASE_IOS_PROJECT_ID,
+    envWithFallback(process.env.FIREBASE_ANDROID_PROJECT_ID, process.env.FIREBASE_PROJECT_ID),
+  );
+
+  const remoteConfigClientEmail = envWithFallback(
+    process.env.FIREBASE_IOS_CLIENT_EMAIL,
+    envWithFallback(process.env.FIREBASE_ANDROID_CLIENT_EMAIL, process.env.FIREBASE_CLIENT_EMAIL),
+  );
+
+  const remoteConfigPrivateKey = envWithFallback(
+    process.env.FIREBASE_IOS_PRIVATE_KEY,
+    envWithFallback(process.env.FIREBASE_ANDROID_PRIVATE_KEY, process.env.FIREBASE_PRIVATE_KEY),
+  )?.replace(/\\n/g, '\n');
+
+  // Remote Config est optionnel : on initialise seulement si toutes les variables sont présentes
+  if (remoteConfigProjectId && remoteConfigClientEmail && remoteConfigPrivateKey) {
+    iosAndroidApp = admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: remoteConfigProjectId,
+        clientEmail: remoteConfigClientEmail,
+        privateKey: remoteConfigPrivateKey,
+      }),
+    }, 'ios-android');
+  } else {
+    console.warn('⚠️ Variables Remote Config (FIREBASE_IOS_* ou FIREBASE_ANDROID_*/FIREBASE_*) manquantes - Remote Config désactivé');
+  }
 }
 
 // Initialiser Firebase Admin pour Android Realtime Database
 let androidApp: any = null;
 if (!admin.apps.some(app => app?.name === 'android')) {
-  const androidPrivateKey = process.env.FIREBASE_ANDROID_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const androidPrivateKey = envWithFallback(
+    process.env.FIREBASE_ANDROID_PRIVATE_KEY,
+    process.env.FIREBASE_PRIVATE_KEY,
+  )?.replace(/\\n/g, '\n');
+  
+  const androidProjectId = envWithFallback(
+    process.env.FIREBASE_ANDROID_PROJECT_ID,
+    process.env.FIREBASE_PROJECT_ID,
+  );
+
+  const androidClientEmail = envWithFallback(
+    process.env.FIREBASE_ANDROID_CLIENT_EMAIL,
+    process.env.FIREBASE_CLIENT_EMAIL,
+  );
+
+  const androidDatabaseUrl = envWithFallback(
+    process.env.FIREBASE_ANDROID_DATABASE_URL,
+    process.env.FIREBASE_DATABASE_URL,
+  );
   
   androidApp = admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_ANDROID_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_ANDROID_CLIENT_EMAIL,
+      projectId: androidProjectId,
+      clientEmail: androidClientEmail,
       privateKey: androidPrivateKey,
     }),
-    databaseURL: process.env.FIREBASE_ANDROID_DATABASE_URL,
+    databaseURL: androidDatabaseUrl,
   }, 'android');
 }
 
 export const firebaseAdmin = admin;
 export const realtimeDB = dashboardApp?.database() || admin.app('dashboard').database();
-export const iosAndroidAdmin = iosAndroidApp || admin.app('ios-android');
+export const iosAndroidAdmin = iosAndroidApp || (admin.apps.some(app => app?.name === 'ios-android') ? admin.app('ios-android') : null);
 export const androidDB = androidApp?.database() || admin.app('android').database();
 
 /**
@@ -54,6 +111,10 @@ export const androidDB = androidApp?.database() || admin.app('android').database
  */
 export async function getRemoteConfig(): Promise<any> {
   try {
+    if (!iosAndroidAdmin) {
+      throw new Error('Remote Config iOS/Android non configuré (variables FIREBASE_IOS_* ou FIREBASE_ANDROID_*/FIREBASE_* manquantes)');
+    }
+
     const remoteConfig = iosAndroidAdmin.remoteConfig();
     const template = await remoteConfig.getTemplate();
     
@@ -79,6 +140,10 @@ export async function getRemoteConfig(): Promise<any> {
  */
 export async function updateRemoteConfig(platform: 'ios' | 'android', config: any): Promise<void> {
   try {
+    if (!iosAndroidAdmin) {
+      throw new Error('Remote Config iOS/Android non configuré (variables FIREBASE_IOS_* ou FIREBASE_ANDROID_*/FIREBASE_* manquantes)');
+    }
+
     const remoteConfig = iosAndroidAdmin.remoteConfig();
     const template = await remoteConfig.getTemplate();
     
